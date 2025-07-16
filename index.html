@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC P2P App</title>
+    <!-- Tailwind CSS CDN - for local development/single file. In a Next.js project, Tailwind is configured. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Simple dark mode toggle script
+        function toggleDarkMode() {
+            const html = document.documentElement;
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                html.classList.add('light');
+                localStorage.setItem('theme', 'light');
+            } else {
+                html.classList.remove('light');
+                html.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // Apply theme on load
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.classList.add(savedTheme);
+        });
+    </script>
+    <style>
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .dark ::-webkit-scrollbar-track {
+            background: #333;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #555;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .dark ::-webkit-scrollbar-thumb:hover {
+            background: #777;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-50 transition-colors duration-300 flex items-center justify-center">
+    <div class="w-full max-w-6xl mx-auto px-4 py-8 space-y-8">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-4xl font-extrabold text-blue-600 dark:text-blue-400">WebRTC P2P App</h1>
+            <button onclick="toggleDarkMode()" class="px-4 py-2 rounded-md bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200">
+                Toggle Dark Mode
+            </button>
+        </header>
+
+        <!-- Lobby/Connecting Page -->
+        <section id="lobby-view" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center max-w-md mx-auto">
+            <h2 class="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100">Join or Create a Room</h2>
+            <div class="space-y-4">
+                <input type="text" id="roomIdInput" placeholder="Enter Room ID" class="w-full p-3 border border-gray-300 rounded-md bg-gray-50 text-gray-800 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 focus:ring-blue-500 focus:border-blue-500">
+                <button id="joinRoomBtn" class="w-full bg-blue-600 text-white px-5 py-3 rounded-md hover:bg-blue-700 transition-colors">Join Room</button>
+                <div class="relative flex py-5 items-center">
+                    <div class="flex-grow border-t border-gray-300 dark:border-gray-600"></div>
+                    <span class="flex-shrink mx-4 text-gray-400 dark:text-gray-500">OR</span>
+                    <div class="flex-grow border-t border-gray-300 dark:border-gray-600"></div>
+                </div>
+                <button id="generateRoomBtn" class="w-full bg-green-600 text-white px-5 py-3 rounded-md hover:bg-green-700 transition-colors">Generate New Room ID</button>
+                <p id="currentRoomIdDisplay" class="text-lg font-medium text-gray-700 dark:text-gray-300 mt-4 hidden"></p>
+                <p id="lobbyStatus" class="text-sm text-gray-500 dark:text-gray-400 mt-2"></p>
+            </div>
+        </section>
+
+        <!-- Main Messaging and Calling Page -->
+        <section id="main-app-view" class="hidden space-y-8">
+            <div class="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-6 shadow-md text-blue-800 dark:text-blue-200 mb-8">
+                <h2 class="text-xl font-semibold mb-3">How to Connect:</h2>
+                <ol class="list-decimal list-inside space-y-2">
+                    <li>Ensure both tabs are in the same "Room ID".</li>
+                    <li>In both tabs, click "Start Local Stream".</li>
+                    <li>In the **initiating** tab (the one that generated the room ID or joined first), click "Create Offer".</li>
+                    <li><strong class="text-red-600 dark:text-red-400">IMPORTANT: Wait until "ICE Gathering State" below shows "complete"</strong> in the "Connection Status" section. This means your browser has found all possible network paths.</li>
+                    <li>Copy the entire content from "Your Signaling Data" in the initiating tab.</li>
+                    <li>In the **receiving** tab, paste the copied data into "Remote Signaling Data" and click "Process Remote Signaling Data".</li>
+                    <li>In the receiving tab, click "Create Answer".</li>
+                    <li><strong class="text-red-600 dark:text-red-400">IMPORTANT: Wait until "ICE Gathering State" below shows "complete"</strong> in the "Connection Status" section.</li>
+                    <li>Copy the entire content from "Your Signaling Data" in the receiving tab.</li>
+                    <li>In the initiating tab, paste the copied data into "Remote Signaling Data" and click "Process Remote Signaling Data".</li>
+                    <li>The connection should now establish. Watch the "Connection Status" below.</li>
+                </ol>
+                <p class="mt-4 text-sm text-blue-700 dark:text-blue-300">
+                    <strong>Note:</strong> This manual signaling is for demonstration. A real application requires a signaling server (e.g., WebSocket) to automate this exchange.
+                </p>
+            </div>
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Connection Status:</h2>
+                <p class="text-lg mb-4">
+                    Overall: <span id="connectionState" class="font-bold text-yellow-500">Disconnected</span><br>
+                    ICE: <span id="iceConnectionState" class="font-bold text-yellow-500">New</span><br>
+                    ICE Gathering: <span id="iceGatheringState" class="font-bold text-yellow-500">New</span>
+                </p>
+                <button id="leaveRoomBtn" class="bg-red-600 text-white px-5 py-2 rounded-md hover:bg-red-700 transition-colors mb-4">Leave Room</button>
+            </div>
+
+            <!-- Video & Voice Section -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Video & Voice</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="flex flex-col items-center">
+                        <h3 class="text-lg font-medium mb-2 text-gray-700 dark:text-gray-200">Local Video</h3>
+                        <video id="localVideo" autoplay muted playsinline class="w-full max-w-md aspect-video bg-black rounded-lg shadow-md"></video>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <h3 class="text-lg font-medium mb-2 text-gray-700 dark:text-gray-200">Remote Video</h3>
+                        <video id="remoteVideo" autoplay playsinline class="w-full max-w-md aspect-video bg-black rounded-lg shadow-md"></video>
+                    </div>
+                </div>
+                <div id="controls" class="flex flex-wrap gap-3 justify-center">
+                    <button id="startLocalStreamBtn" class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Start Local Stream</button>
+                    <button id="stopLocalStreamBtn" disabled class="bg-red-600 text-white px-5 py-2 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Stop Local Stream</button>
+                    <button id="toggleVideoBtn" disabled class="bg-gray-200 text-gray-800 px-5 py-2 rounded-md hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Toggle Video</button>
+                    <button id="toggleAudioBtn" disabled class="bg-gray-200 text-gray-800 px-5 py-2 rounded-md hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Toggle Audio</button>
+                </div>
+            </section>
+
+            <!-- Signaling Section -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Signaling (Consolidated Manual Exchange)</h2>
+                <div id="signaling-controls" class="flex flex-wrap gap-3 mb-6 justify-center">
+                    <button id="createOfferBtn" class="bg-green-600 text-white px-5 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Create Offer</button>
+                    <button id="createAnswerBtn" disabled class="bg-purple-600 text-white px-5 py-2 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Create Answer</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="text-lg font-medium mb-2 text-gray-700 dark:text-gray-200">Your Signaling Data (Copy This)</h3>
+                        <textarea id="localSignalingDataTextarea" readonly class="w-full h-48 p-3 border border-gray-300 rounded-md bg-gray-50 text-gray-800 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 font-mono text-sm resize-y"></textarea>
+                        <button onclick="copyToClipboard('localSignalingDataTextarea')" class="mt-2 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors">Copy All Signaling Data</button>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-medium mb-2 text-gray-700 dark:text-gray-200">Remote Signaling Data (Paste Here)</h3>
+                        <textarea id="remoteSignalingDataTextarea" class="w-full h-48 p-3 border border-gray-300 rounded-md bg-gray-50 text-gray-800 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 font-mono text-sm resize-y"></textarea>
+                        <button id="processRemoteSignalingDataBtn" class="mt-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Process Remote Signaling Data</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Chat Section -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Chat</h2>
+                <div id="messages" class="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 p-4 min-h-[150px] max-h-[300px] overflow-y-auto rounded-md mb-4 space-y-2"></div>
+                <div id="chat-controls" class="flex gap-3">
+                    <input type="text" id="chatInput" placeholder="Type your message..." disabled class="flex-grow p-3 border border-gray-300 rounded-md bg-white text-gray-800 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button id="sendChatBtn" disabled class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Send</button>
+                </div>
+            </section>
+
+            <!-- File Transfer Section -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-100">File Transfer</h2>
+                <div id="file-transfer-controls" class="flex flex-wrap gap-3 mb-4 items-center">
+                    <input type="file" id="fileInput" disabled class="flex-grow p-2 border border-gray-300 rounded-md bg-white text-gray-800 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button id="sendFileBtn" disabled class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Send File</button>
+                </div>
+                <h3 class="text-lg font-medium mb-2 text-gray-700 dark:text-gray-200">Received Files</h3>
+                <div id="receivedFiles" class="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 p-4 min-h-[80px] max-h-[200px] overflow-y-auto rounded-md space-y-2">
+                    <p class="text-gray-500 dark:text-gray-400">No files received yet.</p>
+                </div>
+            </section>
+        </section>
+    </div>
+
+    <script>
+        let localStream;
+        let peerConnection;
+        let chatDataChannel;
+        let fileDataChannel;
+        let localIceCandidates = [];
+        let currentRoomId = null;
+
+        // File transfer variables
+        let receivedFileBuffer = [];
+        let receivedFileName = '';
+        let receivedFileSize = 0;
+        let receivedFileChunks = 0;
+        let currentReceivedSize = 0;
+
+        // UI Elements
+        const lobbyView = document.getElementById('lobby-view');
+        const mainAppView = document.getElementById('main-app-view');
+        const roomIdInput = document.getElementById('roomIdInput');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        const generateRoomBtn = document.getElementById('generateRoomBtn');
+        const currentRoomIdDisplay = document.getElementById('currentRoomIdDisplay');
+        const lobbyStatus = document.getElementById('lobbyStatus');
+        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+        const connectionStateSpan = document.getElementById('connectionState');
+        const iceConnectionStateSpan = document.getElementById('iceConnectionState');
+        const iceGatheringStateSpan = document.getElementById('iceGatheringState');
+
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const startLocalStreamBtn = document.getElementById('startLocalStreamBtn');
+        const stopLocalStreamBtn = document.getElementById('stopLocalStreamBtn');
+        const toggleVideoBtn = document.getElementById('toggleVideoBtn');
+        const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+        const createOfferBtn = document.getElementById('createOfferBtn');
+        const createAnswerBtn = document.getElementById('createAnswerBtn');
+        const localSignalingDataTextarea = document.getElementById('localSignalingDataTextarea');
+        const remoteSignalingDataTextarea = document.getElementById('remoteSignalingDataTextarea');
+        const processRemoteSignalingDataBtn = document.getElementById('processRemoteSignalingDataBtn');
+        const messagesDiv = document.getElementById('messages');
+        const chatInput = document.getElementById('chatInput');
+        const sendChatBtn = document.getElementById('sendChatBtn');
+        const fileInput = document.getElementById('fileInput');
+        const sendFileBtn = document.getElementById('sendFileBtn');
+        const receivedFilesDiv = document.getElementById('receivedFiles');
+
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' } // Google's public STUN server
+            ]
+        };
+
+        // Utility function to copy text to clipboard
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            element.select();
+            element.setSelectionRange(0, 99999); // For mobile devices
+            document.execCommand('copy');
+            alert('Copied to clipboard!');
+        }
+
+        // --- Room Management ---
+        function generateRoomId() {
+            return Math.random().toString(36).substring(2, 9); // Simple random ID
+        }
+
+        function enterRoom(roomId) {
+            currentRoomId = roomId;
+            currentRoomIdDisplay.textContent = `Room ID: ${currentRoomId}`;
+            currentRoomIdDisplay.classList.remove('hidden');
+            lobbyStatus.textContent = `Joined room: ${currentRoomId}. Waiting for peer...`;
+            
+            // Switch views
+            lobbyView.classList.add('hidden');
+            mainAppView.classList.remove('hidden');
+
+            // Initialize peer connection when entering room
+            createPeerConnection();
+        }
+
+        function leaveRoom() {
+            stopLocalStream(); // Stop all media and close PC
+            currentRoomId = null;
+            currentRoomIdDisplay.classList.add('hidden');
+            roomIdInput.value = '';
+            lobbyStatus.textContent = 'Ready to join or create a room.';
+            updateConnectionStatus('Disconnected', 'New', 'New');
+
+            // Switch views back to lobby
+            mainAppView.classList.add('hidden');
+            lobbyView.classList.remove('hidden');
+        }
+
+        // --- WebRTC Core Functions ---
+
+        async function startLocalStream() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                startLocalStreamBtn.disabled = true;
+                stopLocalStreamBtn.disabled = false;
+                toggleVideoBtn.disabled = false;
+                toggleAudioBtn.disabled = false;
+                
+                // Add tracks to peer connection if it exists
+                if (peerConnection) {
+                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+                } else {
+                    // This case should ideally not happen if user follows flow (enter room -> start stream)
+                    // But as a fallback, create PC and add tracks
+                    createPeerConnection();
+                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+                }
+            } catch (error) {
+                console.error('Error accessing media devices:', error);
+                alert('Error accessing camera/microphone. Please check permissions.');
+            }
+        }
+
+        function stopLocalStream() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localVideo.srcObject = null;
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            remoteVideo.srcObject = null;
+            startLocalStreamBtn.disabled = false;
+            stopLocalStreamBtn.disabled = true;
+            toggleVideoBtn.disabled = true;
+            toggleAudioBtn.disabled = true;
+            createOfferBtn.disabled = true; // Disable until new PC is created
+            createAnswerBtn.disabled = true;
+            processRemoteSignalingDataBtn.disabled = false;
+            chatInput.disabled = true;
+            sendChatBtn.disabled = true;
+            fileInput.disabled = true;
+            sendFileBtn.disabled = true;
+            localSignalingDataTextarea.value = '';
+            remoteSignalingDataTextarea.value = '';
+            messagesDiv.innerHTML = '';
+            receivedFilesDiv.innerHTML = '<p class="text-gray-500 dark:text-gray-400">No files received yet.</p>';
+            resetFileTransferState();
+            localIceCandidates = []; // Clear ICE candidates
+            updateConnectionStatus('Disconnected', 'New', 'New');
+        }
+
+        function toggleVideo() {
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                if (videoTrack) {
+                    videoTrack.enabled = !videoTrack.enabled;
+                    toggleVideoBtn.textContent = videoTrack.enabled ? 'Disable Video' : 'Enable Video';
+                }
+            }
+        }
+
+        function toggleAudio() {
+            if (localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    audioTrack.enabled = !audioTrack.enabled;
+                    toggleAudioBtn.textContent = audioTrack.enabled ? 'Mute Audio' : 'Unmute Audio';
+                }
+            }
+        }
+
+        function createPeerConnection() {
+            if (peerConnection) {
+                peerConnection.close(); // Close existing PC if any
+            }
+            peerConnection = new RTCPeerConnection(configuration);
+            localIceCandidates = []; // Reset candidates for new connection
+            updateConnectionStatus('New', 'New', 'New'); // Reset status on new PC
+
+            // Add local stream tracks to peer connection if stream already exists
+            if (localStream) {
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            }
+
+            // Handle ICE candidates
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log('Local ICE candidate:', event.candidate);
+                    localIceCandidates.push(event.candidate);
+                    updateLocalSignalingData(); // Update textarea with new candidate
+                }
+            };
+
+            // Handle remote stream
+            peerConnection.ontrack = (event) => {
+                console.log('Remote track received:', event.streams[0]);
+                if (remoteVideo.srcObject !== event.streams[0]) {
+                    remoteVideo.srcObject = event.streams[0];
+                }
+            };
+
+            // Handle data channels
+            peerConnection.ondatachannel = (event) => {
+                console.log('Data Channel received:', event.channel.label);
+                if (event.channel.label === 'chat') {
+                    chatDataChannel = event.channel;
+                    setupChatDataChannel(chatDataChannel);
+                } else if (event.channel.label === 'fileTransfer') {
+                    fileDataChannel = event.channel;
+                    setupFileDataChannel(fileDataChannel);
+                }
+            };
+
+            // Create data channels for initiator (they will be received by ondatachannel on the other side)
+            chatDataChannel = peerConnection.createDataChannel('chat');
+            setupChatDataChannel(chatDataChannel);
+
+            fileDataChannel = peerConnection.createDataChannel('fileTransfer', { ordered: true });
+            setupFileDataChannel(fileDataChannel);
+
+            // Peer connection state changes
+            peerConnection.onconnectionstatechange = (event) => {
+                updateConnectionStatus(peerConnection.connectionState, peerConnection.iceConnectionState, peerConnection.iceGatheringState);
+                if (peerConnection.connectionState === 'connected') {
+                    console.log('WebRTC connection established!');
+                    chatInput.disabled = false;
+                    sendChatBtn.disabled = false;
+                    fileInput.disabled = false;
+                    sendFileBtn.disabled = false;
+                } else {
+                    chatInput.disabled = true;
+                    sendChatBtn.disabled = true;
+                    fileInput.disabled = true;
+                    sendFileBtn.disabled = true;
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                updateConnectionStatus(peerConnection.connectionState, peerConnection.iceConnectionState, peerConnection.iceGatheringState);
+                console.log('ICE connection state:', peerConnection.iceConnectionState);
+                if (peerConnection.iceConnectionState === 'failed' || peerConnection.iceConnectionState === 'disconnected') {
+                    appendMessage('System', `ICE connection ${peerConnection.iceConnectionState}!`, 'system');
+                }
+            };
+
+            peerConnection.onicegatheringstatechange = () => {
+                updateConnectionStatus(peerConnection.connectionState, peerConnection.iceConnectionState, peerConnection.iceGatheringState);
+                console.log('ICE gathering state:', peerConnection.iceGatheringState);
+                if (peerConnection.iceGatheringState === 'complete') {
+                    appendMessage('System', 'ICE gathering complete. You can now copy signaling data.', 'system');
+                }
+            };
+
+            createOfferBtn.disabled = false;
+            createAnswerBtn.disabled = false;
+        }
+
+        function updateConnectionStatus(connState, iceConnState, iceGathState) {
+            connectionStateSpan.textContent = connState;
+            iceConnectionStateSpan.textContent = iceConnState;
+            iceGatheringStateSpan.textContent = iceGathState;
+
+            const stateMap = {
+                'new': 'text-yellow-500',
+                'checking': 'text-yellow-500',
+                'connected': 'text-green-500',
+                'completed': 'text-green-500',
+                'disconnected': 'text-red-500',
+                'failed': 'text-red-500',
+                'closed': 'text-gray-500',
+                'gathering': 'text-yellow-500',
+                'complete': 'text-green-500'
+            };
+
+            connectionStateSpan.className = `font-bold ${stateMap[connState] || 'text-gray-500'}`;
+            iceConnectionStateSpan.className = `font-bold ${stateMap[iceConnState] || 'text-gray-500'}`;
+            iceGatheringStateSpan.className = `font-bold ${stateMap[iceGathState] || 'text-gray-500'}`;
+        }
+
+
+        function updateLocalSignalingData() {
+            const data = {
+                sdp: peerConnection.localDescription ? peerConnection.localDescription.toJSON() : null,
+                iceCandidates: localIceCandidates.map(c => c.toJSON()),
+                iceGatheringState: peerConnection.iceGatheringState // Include current ICE gathering state
+            };
+            localSignalingDataTextarea.value = JSON.stringify(data, null, 2);
+        }
+
+        async function createOffer() {
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                updateLocalSignalingData();
+                console.log('Local Offer created:', offer);
+                createOfferBtn.disabled = true; // Disable after creating offer
+            } catch (error) {
+                console.error('Error creating offer:', error);
+            }
+        }
+
+        async function createAnswer() {
+            try {
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                updateLocalSignalingData();
+                console.log('Local Answer created:', answer);
+                createAnswerBtn.disabled = true; // Disable after creating answer
+            } catch (error) {
+                console.error('Error creating answer:', error);
+            }
+        }
+
+        async function processRemoteSignalingData() {
+            try {
+                const remoteData = JSON.parse(remoteSignalingDataTextarea.value);
+                
+                if (remoteData.sdp) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteData.sdp));
+                    console.log('Remote SDP set:', remoteData.sdp);
+                }
+
+                if (remoteData.iceCandidates && Array.isArray(remoteData.iceCandidates)) {
+                    for (const candidate of remoteData.iceCandidates) {
+                        // Add ICE candidates with a small delay to allow processing
+                        // This is a common workaround for manual signaling race conditions
+                        await new Promise(resolve => setTimeout(resolve, 100)); 
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                        console.log('Remote ICE candidate added:', candidate);
+                    }
+                }
+                remoteSignalingDataTextarea.value = ''; // Clear after processing
+            } catch (error) {
+                console.error('Error processing remote signaling data:', error);
+                alert('Invalid signaling data format. Please paste a valid JSON object containing SDP and/or ICE candidates.');
+            }
+        }
+
+        // --- Chat Functions ---
+
+        function setupChatDataChannel(channel) {
+            channel.onopen = () => {
+                console.log('Chat Data Channel opened!');
+                chatInput.disabled = false;
+                sendChatBtn.disabled = false;
+                appendMessage('System', 'Chat channel connected!', 'system');
+            };
+            channel.onmessage = (event) => {
+                console.log('Received chat message:', event.data);
+                appendMessage('Remote', event.data, 'remote');
+            };
+            channel.onclose = () => {
+                console.log('Chat Data Channel closed!');
+                chatInput.disabled = true;
+                sendChatBtn.disabled = true;
+                appendMessage('System', 'Chat channel disconnected!', 'system');
+            };
+            channel.onerror = (error) => {
+                console.error('Chat Data Channel error:', error);
+                appendMessage('System', `Chat channel error: ${error.message}`, 'system');
+            };
+        }
+
+        function sendChatMessage() {
+            const message = chatInput.value.trim();
+            if (message && chatDataChannel && chatDataChannel.readyState === 'open') {
+                chatDataChannel.send(message);
+                appendMessage('Local', message, 'local');
+                chatInput.value = '';
+            } else if (!chatDataChannel || chatDataChannel.readyState !== 'open') {
+                alert('Chat channel is not open. Please ensure connection is established.');
+            }
+        }
+
+        function appendMessage(sender, message, type) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('p-2', 'rounded-lg', 'max-w-[80%]', 'break-words');
+            if (type === 'local') {
+                messageElement.classList.add('bg-blue-500', 'text-white', 'ml-auto');
+            } else if (type === 'remote') {
+                messageElement.classList.add('bg-gray-200', 'text-gray-800', 'dark:bg-gray-600', 'dark:text-gray-100', 'mr-auto');
+            } else if (type === 'system') {
+                messageElement.classList.add('bg-yellow-100', 'text-yellow-800', 'dark:bg-yellow-900', 'dark:text-yellow-200', 'text-center', 'mx-auto', 'text-sm');
+            }
+            messageElement.textContent = `${sender === 'System' ? '' : sender + ': '}${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Auto-scroll to bottom
+        }
+
+        // --- File Transfer Functions ---
+
+        const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+
+        function setupFileDataChannel(channel) {
+            channel.onopen = () => {
+                console.log('File Data Channel opened!');
+                fileInput.disabled = false;
+                sendFileBtn.disabled = false;
+                appendMessage('System', 'File transfer channel connected!', 'system');
+            };
+            channel.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    // Metadata received
+                    try {
+                        const metadata = JSON.parse(event.data);
+                        if (metadata.type === 'file-metadata') {
+                            receivedFileName = metadata.name;
+                            receivedFileSize = metadata.size;
+                            receivedFileChunks = 0;
+                            currentReceivedSize = 0;
+                            receivedFileBuffer = [];
+                            appendMessage('System', `Receiving file: ${receivedFileName} (${(receivedFileSize / 1024).toFixed(2)} KB)`, 'system');
+                            // Clear "No files received yet." message if it exists
+                            if (receivedFilesDiv.children.length === 1 && receivedFilesDiv.children[0].tagName === 'P') {
+                                receivedFilesDiv.innerHTML = '';
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Received non-JSON string on file channel:', event.data);
+                    }
+                } else {
+                    // Binary data (file chunk)
+                    receivedFileBuffer.push(event.data);
+                    currentReceivedSize += event.data.byteLength;
+                    receivedFileChunks++;
+
+                    if (currentReceivedSize >= receivedFileSize && receivedFileSize > 0) {
+                        // File transfer complete
+                        const receivedBlob = new Blob(receivedFileBuffer);
+                        const url = URL.createObjectURL(receivedBlob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = receivedFileName;
+                        link.textContent = `Download ${receivedFileName} (${(receivedBlob.size / 1024).toFixed(2)} KB)`;
+                        link.classList.add('block', 'text-blue-600', 'hover:underline', 'dark:text-blue-400');
+                        receivedFilesDiv.appendChild(link);
+                        appendMessage('System', `File "${receivedFileName}" received successfully!`, 'system');
+                        resetFileTransferState();
+                    }
+                }
+            };
+            channel.onclose = () => {
+                console.log('File Data Channel closed!');
+                fileInput.disabled = true;
+                sendFileBtn.disabled = true;
+                appendMessage('System', 'File transfer channel disconnected!', 'system');
+                resetFileTransferState();
+            };
+            channel.onerror = (error) => {
+                console.error('File Data Channel error:', error);
+                appendMessage('System', `File channel error: ${error.message}`, 'system');
+                resetFileTransferState();
+            };
+        }
+
+        function resetFileTransferState() {
+            receivedFileBuffer = [];
+            receivedFileName = '';
+            receivedFileSize = 0;
+            receivedFileChunks = 0;
+            currentReceivedSize = 0;
+            if (receivedFilesDiv.children.length === 0 || receivedFilesDiv.children[0].tagName === 'P') {
+                receivedFilesDiv.innerHTML = '<p class="text-gray-500 dark:text-gray-400">No files received yet.</p>';
+            }
+        }
+
+        async function sendFile() {
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a file to send.');
+                return;
+            }
+            if (!fileDataChannel || fileDataChannel.readyState !== 'open') {
+                alert('File transfer channel is not open. Please ensure connection is established.');
+                return;
+            }
+
+            // Send file metadata first
+            const metadata = {
+                type: 'file-metadata',
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified,
+                fileType: file.type
+            };
+            fileDataChannel.send(JSON.stringify(metadata));
+            appendMessage('System', `Sending file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, 'system');
+
+            // Read and send file in chunks
+            const reader = new FileReader();
+            let offset = 0;
+
+            reader.onload = (event) => {
+                const chunk = event.target.result;
+                fileDataChannel.send(chunk);
+                offset += chunk.byteLength;
+
+                if (offset < file.size) {
+                    readNextChunk();
+                } else {
+                    appendMessage('System', `File "${file.name}" sent successfully!`, 'system');
+                    fileInput.value = ''; // Clear file input
+                }
+            };
+
+            reader.onerror = (error) => {
+                console.error('File reading error:', error);
+                appendMessage('System', `Error sending file: ${error.message}`, 'system');
+            };
+
+            function readNextChunk() {
+                const slice = file.slice(offset, offset + CHUNK_SIZE);
+                reader.readAsArrayBuffer(slice);
+            }
+
+            readNextChunk();
+        }
+
+        // --- Event Listeners ---
+        generateRoomBtn.addEventListener('click', () => {
+            const newRoomId = generateRoomId();
+            roomIdInput.value = newRoomId;
+            enterRoom(newRoomId);
+        });
+
+        joinRoomBtn.addEventListener('click', () => {
+            const roomId = roomIdInput.value.trim();
+            if (roomId) {
+                enterRoom(roomId);
+            } else {
+                alert('Please enter a Room ID or generate a new one.');
+            }
+        });
+
+        leaveRoomBtn.addEventListener('click', leaveRoom);
+        startLocalStreamBtn.addEventListener('click', startLocalStream);
+        stopLocalStreamBtn.addEventListener('click', stopLocalStream);
+        toggleVideoBtn.addEventListener('click', toggleVideo);
+        toggleAudioBtn.addEventListener('click', toggleAudio);
+        createOfferBtn.addEventListener('click', createOffer);
+        createAnswerBtn.addEventListener('click', createAnswer);
+        processRemoteSignalingDataBtn.addEventListener('click', processRemoteSignalingData);
+        sendChatBtn.addEventListener('click', sendChatMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendChatMessage();
+            }
+        });
+        sendFileBtn.addEventListener('click', sendFile);
+
+        // Initial state setup
+        document.addEventListener('DOMContentLoaded', () => {
+            leaveRoom(); // Initialize to lobby view and reset all states
+        });
+    </script>
+</body>
+</html>
